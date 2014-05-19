@@ -18,27 +18,21 @@ package filteredcursor.android;
 
 import android.database.CharArrayBuffer;
 import android.database.Cursor;
-import android.database.CursorIndexOutOfBoundsException;
 import android.database.CursorWrapper;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.Deque;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
- * Wraps a Cursor and allow its positions to be filtered out, repeated, or reordered.
+ * Wraps a Cursor and allowing its positions to be filtered out, repeated, or reordered. Common ways of creating
+ * FilteredCursor objects are provided by the {@link FilteredCursorFactory}.
  *
- * Note that if the source Cursor exceeds the size of the CursorWindow (2MB) the FilteredCursor may end up with
- * extremely poor performance due to frequent CursorWindow cache misses. In those cases it is recommended that source
- * Cursor contain less data.
+ * Note that if the source Cursor exceeds the size of the {@link android.database.CursorWindow} the FilteredCursor
+ * may end up having extremely poor performance due to frequent CursorWindow cache misses. In those cases it is
+ * recommended that source Cursor contain less data.
  *
  * @author Jacob Whitaker Abrams
  */
@@ -55,112 +49,9 @@ public class FilteredCursor extends CursorWrapper {
   private boolean mClosed;
 
   /**
-   * An interface to select rows to appear in a new FilteredCursor.
-   */
-  public interface Selector {
-    /**
-     * Return true to include the current position of the source Cursor into a FilteredCursor.
-     */
-    public boolean select(Cursor cursor);
-  }
-
-  /**
-   * Create a FilteredCursor that contains only rows selected by the given Selector. The order of the rows in the
-   * FilteredCursor matches the order of the source Cursor.
-   */
-  public static FilteredCursor createUsingSelector(Cursor cursor, Selector selector) {
-    if (cursor == null) {
-      return null;
-    }
-
-    ArrayList<Integer> filterList = new ArrayList<Integer>();
-
-    if (cursor.moveToFirst()) {
-      do {
-        if (selector.select(cursor)) {
-          filterList.add(cursor.getPosition());
-        }
-      } while (cursor.moveToNext());
-    }
-
-    return new FilteredCursor(cursor, toIntArray(filterList));
-  }
-
-  /**
-   * When a source Cursor is joined with a list of values the JoinType specifies how rows are filtered. The JoinTypes
-   * operates similarly to standard SQL joins.
-   */
-  public enum JoinType {
-    /**
-     * Specifies a left outer join, for rows where there is no match in the cursor {@link FilteredCursor#isEmpty()}
-     * returns true.
-     */
-    LEFT_OUTER_JOIN,
-    /**
-     * Just like {@link JoinType#LEFT_OUTER_JOIN} except every row must match, if not {@link IllegalArgumentException}
-     * is thrown.
-     */
-    STRICT_LEFT_OUTER_JOIN,
-    /** Specifies an inner join. */
-    INNER_JOIN,
-  }
-
-  /**
-   * Create a new FilteredCursor using a {@link JoinType#STRICT_LEFT_OUTER_JOIN}. The joinList acts as the left table
-   * with a single column of values and source Cursor acts as the right table. The join is performed on the values of
-   * the given columnName. Returns null if the provided cursor
-   * is null.
-   *
-   * @see JoinType
-   */
-  public static FilteredCursor createUsingJoinList(Cursor cursor, String columnName, List<String> joinList) {
-    return createUsingJoinList(cursor, columnName, joinList, JoinType.STRICT_LEFT_OUTER_JOIN);
-  }
-
-  /**
-   * Create a new FilteredCursor using a {@link JoinType#STRICT_LEFT_OUTER_JOIN}. The joinList acts as the left table
-   * with a single column of values and source Cursor acts as the right table. The join is performed on the values of
-   * the given columnName. Returns null if the provided cursor
-   * is null.
-   *
-   * @see JoinType
-   */
-  public static FilteredCursor createUsingJoinList(Cursor cursor, int columnIndex, List<String> joinList) {
-    return createUsingJoinList(cursor, columnIndex, joinList, JoinType.STRICT_LEFT_OUTER_JOIN);
-  }
-
-  /**
-   * Create a new FilteredCursor by joining the source Cursor with the given list using a {@link JoinType}. The
-   * joinList acts as the left table with a single column of values and source Cursor acts as the right table. The join
-   * is performed on the values of the given columnName. Returns null if the provided cursor is null.
-   *
-   * @see JoinType
-   */
-  public static FilteredCursor createUsingJoinList(Cursor cursor, String columnName, List<String> joinList, JoinType joinType) {
-    if (cursor == null) {
-      return null;
-    }
-    final int columnIndex = cursor.getColumnIndexOrThrow(columnName);
-    return new FilteredCursor(cursor, columnIndex, joinList, joinType);
-  }
-
-  /**
-   * Just like {@link FilteredCursor#createUsingJoinList(Cursor, String, List<String>, JoinType)}, except it takes a
-   * column index instead of column name.
-   *
-   * @see JoinType
-   */
-  public static FilteredCursor createUsingJoinList(Cursor cursor, int columnIndex, List<String> joinList, JoinType joinType) {
-    if (cursor == null) {
-      return null;
-    }
-    return new FilteredCursor(cursor, columnIndex, joinList, joinType);
-  }
-
-  /**
    * Create a FilteredCursor that appears identical to its wrapped Cursor.
    */
-  public static FilteredCursor createIdentityFilteredCursor(Cursor cursor) {
+  public static FilteredCursor createUsingIdentityFilter(Cursor cursor) {
     if (cursor == null) {
       return null;
     }
@@ -168,11 +59,12 @@ public class FilteredCursor extends CursorWrapper {
   }
 
   /**
-   * Create a new FilteredCursor using the given filter. The filterMap specifies where rows of the given Cursor should
-   * appear in the FilteredCursor. For example if filterMap = { 5, 9 } then the FilteredCursor will have two rows, the
+   * Create a new FilteredCursor using the given filter. The filter specifies where rows of the given Cursor should
+   * appear in the FilteredCursor. For example if filter = { 5, 9 } then the FilteredCursor will have two rows, the
    * first row maps to row 5 in the source Cursor and the second row maps to row 9 in the source cursor. Returns null
-   * if the provided cursor is null.
-   * */
+   * if the provided cursor is null. A value of -1 in the filter is treated as an empty row in the Cursor with no data,
+   * see {@link FilteredCursor#isPositionEmpty()}.
+   */
   public static FilteredCursor createUsingFilter(Cursor cursor, int[] filter) {
     if (cursor == null) {
       return null;
@@ -183,50 +75,6 @@ public class FilteredCursor extends CursorWrapper {
     return new FilteredCursor(cursor, filter);
   }
 
-  /**
-   * Create a group of FilteredCursors. Each FilteredCursor will contain only rows with the same value for the given
-   * column. The order of the rows in each FilteredCursor matches the order of the source Cursor. NULL is not treated
-   * as unique so if there are any rows with the value NULL they will be grouped together.
-   */
-  public static Map<String, FilteredCursor> createGroups(Cursor cursor, String columnName) {
-    if (cursor == null) {
-      return null;
-    }
-    final int columnIndex = cursor.getColumnIndexOrThrow(columnName);
-    return createGroups(cursor, columnIndex);
-  }
-
-  /**
-   * Just like {@link FilteredCursor#createGroups(Cursor, String)}, except takes a column index instead of column name.
-   */
-  public static Map<String, FilteredCursor> createGroups(Cursor cursor, int columnIndex) {
-    if (cursor == null) {
-      return null;
-    }
-
-    Map<String, List<Integer>> filters = new HashMap<String, List<Integer>>();
-
-    if (cursor.moveToFirst()) {
-      do {
-        String key = cursor.getString(columnIndex);
-        List<Integer> filterList = filters.get(key);
-        if (filterList == null) {
-          filterList = new ArrayList<Integer>();
-          filters.put(key, filterList);
-        }
-        filterList.add(cursor.getPosition());
-      } while (cursor.moveToNext());
-    }
-
-    Map<String, FilteredCursor> groups = new HashMap<String, FilteredCursor>();
-
-    for (Map.Entry<String, List<Integer>> entry : filters.entrySet()) {
-      groups.put(entry.getKey(), new FilteredCursor(cursor, toIntArray(entry.getValue())));
-    }
-
-    return groups;
-  }
-
   private FilteredCursor(Cursor cursor) {
     this(cursor, null);
     resetToIdentityFilter();
@@ -234,110 +82,9 @@ public class FilteredCursor extends CursorWrapper {
 
   private FilteredCursor(Cursor cursor, int[] filterMap) {
     super(cursor);
-
     mCursor = cursor;
     mFilterMap = filterMap;
-
     attachToMasterCursor();
-  }
-
-  private FilteredCursor(Cursor cursor, int columnIndex, List<String> joinList, JoinType joinType) {
-    this(cursor, null);
-
-    if (joinList == null || joinList.size() == 0) {
-      mFilterMap = new int[0];
-      return;
-    }
-
-    final int filterListSize = joinList.size();
-    mFilterMap = new int[filterListSize];
-    // -1 is a magic value indicating this position has not been mapped, which is illegal
-    Arrays.fill(mFilterMap, -1);
-
-    Map<String, Deque<Integer>> filterValueMap = new HashMap<String, Deque<Integer>>(filterListSize);
-
-    for (int i = 0; i < filterListSize; i++) {
-      String value = joinList.get(i);
-
-      Deque<Integer> filterIndexList = filterValueMap.get(value);
-      if (filterIndexList == null) {
-        filterIndexList = new ArrayDeque<Integer>();
-        filterValueMap.put(value, filterIndexList);
-      }
-      filterIndexList.add(i);
-    }
-
-    if (cursor.moveToFirst()) {
-      do {
-        String value = cursor.getString(columnIndex);
-        Deque<Integer> filterIndexList = filterValueMap.get(value);
-
-        if (filterIndexList != null) {
-          int cursorPosition = cursor.getPosition();
-
-          for (Integer filterIndex : filterIndexList) {
-            mFilterMap[filterIndex] = cursorPosition;
-          }
-
-          // If this cursor value comes up again point remaining filter indexes to it
-          if (filterIndexList.size() > 1) {
-            filterIndexList.removeFirst();
-          } else {
-            filterValueMap.remove(value);
-          }
-        }
-      } while (cursor.moveToNext());
-    }
-
-    switch (joinType) {
-      case STRICT_LEFT_OUTER_JOIN: {
-        failOnEmptyPositions(columnIndex, filterValueMap);
-        break;
-      }
-      case INNER_JOIN: {
-        cullEmptyPositions();
-        break;
-      }
-      case LEFT_OUTER_JOIN: {
-        // no need to do anything
-        break;
-      }
-    }
-  }
-
-  private void failOnEmptyPositions(int columnIndex, Map<String, Deque<Integer>> filterValueMap) {
-    for (Map.Entry<String, Deque<Integer>> filterMapEntry : filterValueMap.entrySet()) {
-      int filterIndex = filterMapEntry.getValue().getFirst();
-      if (mFilterMap[filterIndex] == -1) {
-        throw new IllegalArgumentException("Source cursor is missing entries for the column \""
-            + getColumnName(columnIndex) + "\" with values " + filterMapEntry.getKey());
-      }
-    }
-  }
-
-  private void cullEmptyPositions() {
-    int culledSize = 0;
-    for (int value : mFilterMap) {
-      if (value != -1) {
-        culledSize++;
-      }
-    }
-    int[] culledFilterMap = new int[culledSize];
-    int pos = 0;
-    for (int value : mFilterMap) {
-      if (value != -1) {
-        culledFilterMap[pos++] = value;
-      }
-    }
-    mFilterMap = culledFilterMap;
-  }
-
-  private static int[] toIntArray(List<Integer> list)  {
-    int[] ret = new int[list.size()];
-    int i = 0;
-    for (Integer e : list)
-      ret[i++] = e;
-    return ret;
   }
 
   public int[] getFilterMap() {
@@ -379,8 +126,8 @@ public class FilteredCursor extends CursorWrapper {
   }
 
   /**
-   * Rearrange the filter. The new arrangement is based on the current filter arrangement, not on the original wrapped
-   * Cursor's arrangement.
+   * Rearrange the filter. The new arrangement is based on the current filter arrangement, not on the source Cursor's
+   * arrangement.
    */
   public FilteredCursor refilter(int[] newArrangement) {
     final int newMapSize = newArrangement.length;
@@ -396,15 +143,15 @@ public class FilteredCursor extends CursorWrapper {
 
   /**
    * True if the current cursor position has no data. Attempting to access data in an empty row with any of the getters
-   * will throw {@link CursorIndexOutOfBoundsException}.
+   * will throw {@link UnsupportedOperationException}.
    */
-  public boolean isEmpty() {
+  public boolean isPositionEmpty() {
     return mFilterMap[mPos] == -1;
   }
 
   private void throwIfEmptyRow() {
-    if (isEmpty()) {
-      throw new CursorIndexOutOfBoundsException("Cannot access data in an empty row");
+    if (isPositionEmpty()) {
+      throw new UnsupportedOperationException("Cannot access data in an empty row");
     }
   }
 
@@ -483,8 +230,8 @@ public class FilteredCursor extends CursorWrapper {
 
   @Override
   public final boolean isLast() {
-    int cnt = getCount();
-    return mPos == (cnt - 1) && cnt != 0;
+    int count = getCount();
+    return mPos == (count - 1) && count != 0;
   }
 
   @Override

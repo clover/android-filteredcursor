@@ -37,7 +37,7 @@ public class ExampleFilteredCursorActivity extends Activity {
     source.addRow(new Object[] { 3l, "Beta" });
 
     // Filter out "Beta"
-    FilteredCursor filtered = FilteredCursor.createUsingSelector(source, new FilteredCursor.Selector() {
+    FilteredCursor filtered = FilteredCursorFactory.createUsingSelector(source, new FilteredCursorFactory.Selector() {
       int nameIndex = -1;
 
       @Override
