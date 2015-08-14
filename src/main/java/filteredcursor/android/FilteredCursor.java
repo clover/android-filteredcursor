@@ -314,16 +314,16 @@ public class FilteredCursor extends CursorWrapper {
     // Mark this Cursor as closed
     mClosed = true;
 
-    // Find the master Cursor and close it if all linked cursors are closed
+    // Only close the wrapped cursor if no other FilteredCursors are referencing the master cursor
     Cursor masterCursor = getMasterCursor();
 
     Set<FilteredCursor> linkedFilteredCursorSet = sMasterCursorMap.get(masterCursor);
     if (linkedFilteredCursorSet == null) {
-      masterCursor.close(); // Shouldn't ever happen?
+      super.close(); // Shouldn't ever happen?
     } else {
       linkedFilteredCursorSet.remove(this);
       if (linkedFilteredCursorSet.isEmpty()) {
-        masterCursor.close();
+        super.close();
       }
     }
 
